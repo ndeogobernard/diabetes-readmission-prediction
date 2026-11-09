@@ -1,6 +1,6 @@
 ---
 title: "Part 2: Question 1, Predicting 30-Day Readmission"
-subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+subtitle: "Data science project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
 author: "Bernard Issifu"
 output:
   html_document:

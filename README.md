@@ -1,9 +1,9 @@
 # Predicting 30-Day Hospital Readmission for Patients with Diabetes
 
-A personal data-mining project by **Bernard Issifu**, done for practice alongside the INFO 523 Data
-Mining and Discovery course (University of Arizona). It follows the course's final-project structure: a
-dataset introduction, then two questions, each with an introduction, methods, results and discussion.
-Every analysis is written in both **Python** and **R**.
+A data science project on predicting which patients with diabetes will be readmitted to hospital within
+30 days of discharge, using 101,766 hospital encounters from 130 US hospitals. It combines
+classification models with association rule mining to identify the patients and patient profiles at
+highest risk. Every analysis is implemented in both **Python** and **R**.
 
 ## Dataset
 

@@ -1,6 +1,6 @@
 ---
 title: "Part 3: Question 2, Association Rules for Early Readmission"
-subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+subtitle: "Data science project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
 author: "Bernard Issifu"
 output:
   html_document:

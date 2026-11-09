@@ -1,6 +1,6 @@
 ---
 title: "Predicting 30-Day Hospital Readmission for Patients with Diabetes"
-subtitle: "INFO 523 Data Mining and Discovery · Final project report (personal practice version, not submitted)"
+subtitle: "Data science project (healthcare analytics)"
 author: "Bernard Issifu"
 date: "November 2026"
 ---

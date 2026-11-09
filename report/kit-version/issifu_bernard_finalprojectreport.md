@@ -2,7 +2,6 @@
 title: "Predicting 30-Day Hospital Readmission for Patients with Diabetes"
 author: "Bernard Issifu"
 date: "9 November 2026"
-course: "INFO 523 Data Mining and Discovery (personal practice version, not submitted)"
 no-section-numbers: true
 ---
 

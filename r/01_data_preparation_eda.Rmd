@@ -1,6 +1,6 @@
 ---
 title: "Part 1: Data Preparation and Exploratory Analysis"
-subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+subtitle: "Data science project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
 author: "Bernard Issifu"
 output:
   html_document:
@@ -275,7 +275,7 @@ summary(df[num_cols])
 **Interpretation.** Length of stay, medications and prior visits are right-skewed (most patients sit at
 the low end, with a long tail), while lab procedures are roughly bell-shaped. `prior_visits` is
 especially skewed, with most patients at zero; Part 2 will consider a log transform or binning for these
-features, as covered in the course's preprocessing weeks.
+features.
 
 ## 5.4 Do readmitted patients differ on the numeric features?
 
