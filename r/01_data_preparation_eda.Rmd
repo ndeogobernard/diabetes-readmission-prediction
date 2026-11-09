@@ -1,0 +1,315 @@
+---
+title: "Part 1: Data Preparation and Exploratory Analysis"
+subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+author: "Bernard Issifu"
+output:
+  html_document:
+    toc: true
+    df_print: kable
+---
+
+```{r setup, message = FALSE}
+# ---- Setup ----
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+theme_set(theme_minimal())
+knitr::opts_chunk$set(fig.width = 9, fig.height = 4.5)
+```
+
+This document introduces the dataset, cleans it, engineers the features used later, and explores how
+early readmission relates to patient and hospital-stay characteristics. The same steps are implemented
+in Python in `python/01_data_preparation_eda.ipynb`.
+
+# 1. The dataset
+
+The **Diabetes 130-US Hospitals for Years 1999–2008** dataset (Strack et al., 2014; UCI Machine Learning
+Repository, CC BY 4.0) contains 101,766 hospital encounters of patients diagnosed with diabetes, drawn
+from 130 US hospitals. Each row is one inpatient stay of 1–14 days in which laboratory tests were run and
+medications given. The 50 columns describe the patient (age band, gender, race), the stay (admission
+type and source, length of stay, numbers of lab tests, procedures and medications), the patient's prior
+use of care (outpatient, emergency and inpatient visits in the preceding year), up to three ICD-9
+diagnosis codes, two glucose tests (HbA1c and maximum serum glucose), and whether each of 23 diabetes
+medications was prescribed, increased, decreased or kept steady.
+
+The outcome is `readmitted`: whether the patient returned to hospital **within 30 days** (`<30`), **after
+30 days** (`>30`), or **not at all** (`NO`). Early (30-day) readmission matters because it is costly,
+often preventable, and used by US hospitals as a quality measure.
+
+```{r load}
+# '?' marks missing values. The text 'None' is a real category (test not performed), so only '?'
+# is treated as missing.
+raw <- read.csv("../data/diabetic_data.csv", na.strings = "?", stringsAsFactors = FALSE,
+                check.names = FALSE)
+dim(raw)
+cat("Unique patients:", format(n_distinct(raw$patient_nbr), big.mark = ","), "\n")
+head(raw[, 1:10])
+```
+
+```{r outcome-raw}
+# Outcome distribution in the raw data
+raw %>%
+  count(readmitted, name = "encounters") %>%
+  mutate(percent = round(encounters / sum(encounters) * 100, 1)) %>%
+  arrange(desc(encounters))
+```
+
+# 2. Data quality
+
+## 2.1 Missing values
+
+```{r missing}
+missing <- data.frame(column = names(raw),
+                      pct_missing = round(colMeans(is.na(raw)) * 100, 1)) %>%
+  filter(pct_missing > 0) %>%
+  arrange(desc(pct_missing))
+missing
+```
+
+```{r missing-plot, fig.height = 3.5}
+ggplot(missing, aes(x = reorder(column, pct_missing), y = pct_missing)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Percentage of Missing Values by Column", x = "Column", y = "Missing (%)")
+```
+
+```{r glucose-tests}
+# 'None' in the two glucose tests means the test was not done; it is not missing data
+table(raw$A1Cresult)
+table(raw$max_glu_serum)
+```
+
+**Interpretation.** `weight` is missing for 96.9% of encounters and cannot be used. `payer_code`
+(39.6%) is administrative rather than clinical, and `medical_specialty` (49.1%) is missing for about half
+the stays. `race` and the secondary diagnoses have small gaps. The glucose tests look sparse but are
+complete: `None` means the test was not ordered (83% of stays for HbA1c, 95% for serum glucose), which is
+itself information about the care the patient received.
+
+# 3. Cleaning
+
+Each step below states what it does and why.
+
+```{r cleaning-rows}
+df <- raw
+steps <- data.frame(step = "Raw data", rows = nrow(df))
+
+# (1) Remove encounters ending in death or hospice care: these patients cannot be readmitted,
+#     so keeping them would bias the readmission rate downward.
+#     Discharge codes 11, 19, 20, 21 = expired; 13, 14 = hospice.
+df <- df %>% filter(!discharge_disposition_id %in% c(11, 13, 14, 19, 20, 21))
+steps <- rbind(steps, data.frame(step = "Remove expired / hospice discharges", rows = nrow(df)))
+
+# (2) Remove the 3 records with gender 'Unknown/Invalid'
+df <- df %>% filter(gender != "Unknown/Invalid")
+steps <- rbind(steps, data.frame(step = "Remove invalid gender", rows = nrow(df)))
+
+# (3) Keep only each patient's first encounter. Repeat stays of the same patient are not independent
+#     observations, and their outcomes are linked to the earlier stay.
+df <- df %>% arrange(encounter_id) %>% distinct(patient_nbr, .keep_all = TRUE)
+steps <- rbind(steps, data.frame(step = "Keep first encounter per patient", rows = nrow(df)))
+
+steps
+```
+
+```{r cleaning-columns}
+# (4) Drop columns that are mostly missing, identifiers, or administrative
+df <- df %>% select(-weight, -payer_code, -encounter_id, -patient_nbr)
+
+# (5) Columns with a single value carry no information (three medications are never prescribed
+#     to any patient in the cleaned data)
+constant <- names(df)[sapply(df, function(x) n_distinct(x) == 1)]
+cat("Constant columns dropped:", constant, "\n")
+df <- df %>% select(-all_of(constant))
+
+# (6) Missing race becomes its own category rather than dropping 1,500+ patients
+df$race[is.na(df$race)] <- "Unknown"
+
+# (7) Medical specialty: keep the 10 most common, group the rest as 'Other', label missing as 'Missing'
+top_spec <- names(sort(table(df$medical_specialty), decreasing = TRUE))[1:10]
+df$medical_specialty <- ifelse(is.na(df$medical_specialty), "Missing",
+                               ifelse(df$medical_specialty %in% top_spec,
+                                      df$medical_specialty, "Other"))
+sort(table(df$medical_specialty), decreasing = TRUE)
+```
+
+# 4. Feature engineering
+
+```{r features}
+# (a) Outcome: 1 if readmitted within 30 days, else 0 (both '>30' and 'NO' count as 0)
+df$readmit_30 <- as.integer(df$readmitted == "<30")
+
+# (b) Age band '[70-80)' -> midpoint 75, so age can be used as a number
+df$age_years <- as.integer(sub("^\\[(\\d+)-.*", "\\1", df$age)) + 5
+
+# (c) ICD-9 diagnosis codes (700+ distinct values) grouped into 9 clinical categories,
+#     following the groups used by Strack et al. (2014)
+icd9_group <- function(code) {
+  out <- rep("Other", length(code))          # V and E codes, and anything unmatched
+  x <- suppressWarnings(as.numeric(code))    # V/E codes become NA here
+  out[!is.na(x) & ((x >= 390 & x <= 459) | floor(x) == 785)] <- "Circulatory"
+  out[!is.na(x) & ((x >= 460 & x <= 519) | floor(x) == 786)] <- "Respiratory"
+  out[!is.na(x) & ((x >= 520 & x <= 579) | floor(x) == 787)] <- "Digestive"
+  out[!is.na(x) & floor(x) == 250]                           <- "Diabetes"
+  out[!is.na(x) & x >= 800 & x <= 999]                       <- "Injury"
+  out[!is.na(x) & x >= 710 & x <= 739]                       <- "Musculoskeletal"
+  out[!is.na(x) & ((x >= 580 & x <= 629) | floor(x) == 788)] <- "Genitourinary"
+  out[!is.na(x) & x >= 140 & x <= 239]                       <- "Neoplasms"
+  out[is.na(code)]                                           <- "Missing"
+  out
+}
+for (i in 1:3) df[[paste0("diag", i, "_group")]] <- icd9_group(df[[paste0("diag_", i)]])
+df <- df %>% select(-diag_1, -diag_2, -diag_3)
+
+# (d) Total prior-year visits (outpatient + emergency + inpatient)
+df$prior_visits <- df$number_outpatient + df$number_emergency + df$number_inpatient
+
+# (e) Number of diabetes medications whose dose was changed (Up or Down) during the stay
+med_cols <- names(df)[sapply(df, function(x) all(unique(x) %in% c("No", "Steady", "Up", "Down")))]
+df$n_med_changes <- rowSums(sapply(df[med_cols], function(x) x %in% c("Up", "Down")))
+cat(length(med_cols), "medication columns\n")
+
+# (f) Readable labels for the three coded ID columns (grouped into broad categories)
+recode_ids <- function(x, map) {
+  out <- unname(map[as.character(x)])
+  ifelse(is.na(out), "Other/Unknown", out)
+}
+df$admission_type <- recode_ids(df$admission_type_id,
+  c("1" = "Emergency", "2" = "Urgent", "3" = "Elective", "7" = "Emergency"))
+df$discharge_to <- recode_ids(df$discharge_disposition_id,
+  c("1" = "Home", "6" = "Home with health service", "8" = "Home with health service",
+    "3" = "Care facility", "4" = "Care facility", "5" = "Care facility", "22" = "Care facility",
+    "23" = "Care facility", "24" = "Care facility", "2" = "Other hospital", "10" = "Other hospital"))
+df$admission_source <- recode_ids(df$admission_source_id,
+  c("7" = "Emergency room", "1" = "Referral", "2" = "Referral", "3" = "Referral",
+    "4" = "Transfer", "5" = "Transfer", "6" = "Transfer", "10" = "Transfer", "22" = "Transfer",
+    "25" = "Transfer"))
+df <- df %>% select(-admission_type_id, -discharge_disposition_id, -admission_source_id)
+
+dim(df)
+```
+
+```{r check}
+cat("Missing values remaining:", sum(is.na(df)), "\n")
+cat(sprintf("30-day readmission rate after cleaning: %.2f%%\n", mean(df$readmit_30) * 100))
+```
+
+**Interpretation.** Cleaning leaves **69,987 patients** (one encounter each) and no missing values. The
+30-day readmission rate falls from 11.2% in the raw data to **8.98%**, because patients with many
+repeat stays, who are the most often readmitted, now count once. The outcome is imbalanced (about 1 in
+11 patients), which the models in Part 2 will have to account for.
+
+# 5. Exploratory analysis
+
+## 5.1 Readmission by prior inpatient visits and by age
+
+```{r eda-inpatient-age}
+inp <- df %>%
+  mutate(prior_inpatient = ifelse(number_inpatient >= 3, "3+", as.character(number_inpatient))) %>%
+  group_by(prior_inpatient) %>%
+  summarise(patients = n(), rate = round(mean(readmit_30), 3))
+
+ggplot(inp, aes(x = prior_inpatient, y = rate)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "30-Day Readmission Rate by Prior-Year Inpatient Visits",
+       x = "Inpatient visits in the previous year", y = "30-day readmission rate")
+
+ggplot(df %>% group_by(age) %>% summarise(rate = mean(readmit_30)), aes(x = age, y = rate)) +
+  geom_col(fill = "darkorange") +
+  labs(title = "30-Day Readmission Rate by Age Band", x = "Age band (years)",
+       y = "30-day readmission rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+inp
+```
+
+**Interpretation.** Prior hospital use is the clearest signal so far: the readmission rate rises from
+8.1% for patients with no inpatient visit in the previous year to 12.9% (one visit), 18.5% (two) and
+26.5% (three or more). Readmission also increases with age, from about 7% in the 20–60 bands to
+around 10% for patients aged 70–90 (the youngest bands have very few patients).
+
+## 5.2 Readmission by discharge destination and primary diagnosis
+
+```{r eda-discharge-diag}
+dis <- df %>% group_by(discharge_to) %>%
+  summarise(patients = n(), rate = round(mean(readmit_30), 3)) %>% arrange(rate)
+
+ggplot(dis, aes(x = reorder(discharge_to, rate), y = rate)) +
+  geom_col(fill = "seagreen") +
+  coord_flip() +
+  labs(title = "30-Day Readmission Rate by Discharge Destination", x = "Discharged to",
+       y = "30-day readmission rate")
+
+ggplot(df %>% group_by(diag1_group) %>% summarise(rate = mean(readmit_30)),
+       aes(x = reorder(diag1_group, rate), y = rate)) +
+  geom_col(fill = "slateblue") +
+  coord_flip() +
+  labs(title = "30-Day Readmission Rate by Primary Diagnosis Group", x = "Primary diagnosis group",
+       y = "30-day readmission rate")
+
+dis
+```
+
+**Interpretation.** Patients discharged home have the lowest readmission rate; those sent to a care
+facility or another hospital are readmitted far more often, which likely reflects how ill they were at
+discharge. Differences between primary diagnosis groups are smaller (injury and circulatory conditions
+are highest, respiratory lowest). The tiny 'Missing' group (10 patients) should not be read into.
+
+## 5.3 Distributions of the numeric features
+
+```{r eda-numeric, fig.height = 7}
+num_cols <- c("time_in_hospital", "num_lab_procedures", "num_procedures", "num_medications",
+              "number_diagnoses", "prior_visits")
+
+df %>%
+  select(all_of(num_cols)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30, fill = "steelblue") +
+  facet_wrap(~ feature, scales = "free", ncol = 3) +
+  labs(title = "Distributions of the Numeric Features", x = "Value", y = "Number of patients")
+
+summary(df[num_cols])
+```
+
+**Interpretation.** Length of stay, medications and prior visits are right-skewed (most patients sit at
+the low end, with a long tail), while lab procedures are roughly bell-shaped. `prior_visits` is
+especially skewed, with most patients at zero; Part 2 will consider a log transform or binning for these
+features, as covered in the course's preprocessing weeks.
+
+## 5.4 Do readmitted patients differ on the numeric features?
+
+```{r eda-groups}
+df %>%
+  group_by(readmit_30) %>%
+  summarise(across(all_of(num_cols), ~ round(mean(.x), 2))) %>%
+  pivot_longer(-readmit_30, names_to = "feature") %>%
+  pivot_wider(names_from = readmit_30, values_from = value) %>%
+  rename(`Not readmitted (mean)` = `0`, `Readmitted <30 days (mean)` = `1`)
+```
+
+**Interpretation.** Patients readmitted within 30 days had slightly longer stays, more medications and
+diagnoses, and clearly more prior-year visits on average. No single feature separates the groups well,
+which is typical for readmission data and motivates combining features in a model.
+
+```{r save}
+# Save the cleaned data for Parts 2 and 3
+dir.create("../data/processed", showWarnings = FALSE)
+write.csv(df, "../data/processed/diabetes_clean_r.csv", row.names = FALSE)
+cat("Saved", dim(df), "\n")
+```
+
+# 6. Summary and the two project questions
+
+The cleaned dataset has 69,987 patients and no missing values, with an imbalanced outcome (8.98%
+readmitted within 30 days). Prior hospital use, discharge destination and age show the strongest
+links to early readmission.
+
+The project will address two questions:
+
+1. **Which patient and hospital-stay factors best predict readmission within 30 days?**
+   Classification (logistic regression, decision tree, random forest) with methods for the imbalanced
+   outcome, evaluated with ROC-AUC, recall and precision on a stratified test set.
+2. **Which combinations of patient characteristics and treatments are associated with early
+   readmission?** Association rule mining (Apriori) with `readmitted <30` as the rule consequent,
+   ranked by lift.

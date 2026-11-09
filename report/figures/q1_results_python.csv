@@ -1,0 +1,4 @@
+model,CV ROC-AUC (mean ± sd),Test ROC-AUC,Test PR-AUC,Recall,Precision,F1,Share flagged
+Logistic regression,0.639 ± 0.004,0.64,0.153,0.539,0.135,0.216,0.359
+Decision tree,0.627 ± 0.006,0.634,0.146,0.567,0.129,0.21,0.395
+Random forest,0.646 ± 0.007,0.647,0.159,0.348,0.165,0.224,0.19

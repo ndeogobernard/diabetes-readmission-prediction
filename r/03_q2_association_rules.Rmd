@@ -1,0 +1,178 @@
+---
+title: "Part 3: Question 2, Association Rules for Early Readmission"
+subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+author: "Bernard Issifu"
+output:
+  html_document:
+    toc: true
+    df_print: kable
+---
+
+**Question 2.** Which combinations of patient characteristics and treatments are associated with early
+readmission?
+
+This document uses association rule mining on the cleaned data from Part 1 (render
+`01_data_preparation_eda.Rmd` first). The Python version is `python/03_q2_association_rules.ipynb`.
+
+```{r setup, message = FALSE}
+# ---- Setup ----
+library(dplyr)
+library(ggplot2)
+library(arules)
+
+theme_set(theme_minimal())
+knitr::opts_chunk$set(fig.width = 8, fig.height = 5)
+
+df <- read.csv("../data/processed/diabetes_clean_r.csv", stringsAsFactors = FALSE, na.strings = "")
+dim(df)
+```
+
+# 1. Approach
+
+The approach mirrors the Python version:
+
+- **Transactions:** each patient becomes one basket of 16 items, one per attribute. Numeric features are
+  discretized into a few clinically sensible bins, because Apriori works on categorical items.
+- **Measures:** *support* (share of all patients with both sides of the rule), *confidence* (the
+  readmission rate within the group on the left-hand side) and *lift* (confidence ÷ the overall 8.98%
+  rate).
+- **Settings:** Apriori with minimum support 0.5% and at most 4 items per rule, keeping only rules whose
+  right-hand side is `readmit_30=yes`. Lift ≥ 1.5 marks higher-risk groups; lift ≤ 0.67 marks
+  lower-risk groups.
+- **Redundancy:** a rule is kept only if its confidence is higher (risk rules) or lower (low-risk rules)
+  than that of every shorter rule contained in it.
+
+```{r transactions}
+bin <- function(x, breaks, labels) as.character(cut(x, breaks, labels = labels, right = FALSE))
+
+items <- data.frame(
+  age             = bin(df$age_years, c(0, 60, 80, 200), c("<60", "60-79", "80+")),
+  gender          = df$gender,
+  admission       = df$admission_type,
+  source          = df$admission_source,
+  discharge       = df$discharge_to,
+  diag1           = df$diag1_group,
+  stay            = bin(df$time_in_hospital, c(0, 4, 8, 99), c("1-3 days", "4-7 days", "8+ days")),
+  prior_inpatient = bin(df$number_inpatient, c(0, 1, 2, 999), c("0", "1", "2+")),
+  prior_emergency = ifelse(df$number_emergency > 0, "1+", "0"),
+  diagnoses       = bin(df$number_diagnoses, c(0, 7, 9, 99), c("<7", "7-8", "9+")),
+  medications     = bin(df$num_medications, c(0, 11, 21, 999), c("<11", "11-20", "21+")),
+  A1C             = dplyr::recode(df$A1Cresult, ">7" = "high", ">8" = "high", "None" = "not tested",
+                                  "Norm" = "normal"),
+  insulin         = ifelse(df$insulin == "No", "no", "yes"),
+  med_change      = ifelse(df$change == "Ch", "yes", "no"),
+  diabetes_med    = tolower(df$diabetesMed),
+  readmit_30      = ifelse(df$readmit_30 == 1, "yes", "no"),
+  stringsAsFactors = TRUE
+)
+
+# Each column becomes items named 'column=value', e.g. 'discharge=Home'
+trans <- as(items, "transactions")
+trans
+```
+
+# 2. Mining the rules
+
+```{r apriori}
+rules <- apriori(trans,
+                 parameter = list(support = 0.005, confidence = 0, minlen = 1, maxlen = 4),
+                 appearance = list(rhs = "readmit_30=yes", default = "lhs"),
+                 control = list(verbose = FALSE))
+base_rate <- mean(items$readmit_30 == "yes")
+cat(sprintf("Rules with consequent readmit_30=yes: %s (base rate %.2f%%)\n",
+            format(length(rules), big.mark = ","), base_rate * 100))
+```
+
+```{r redundancy}
+q <- quality(rules)
+q$lhs <- labels(lhs(rules))
+q$size <- size(lhs(rules))
+conf <- setNames(q$confidence, q$lhs)
+conf["{}"] <- base_rate
+
+# Confidence of every proper subset of a rule's left-hand side
+subset_confs <- function(lhs_label) {
+  parts <- strsplit(gsub("^\\{|\\}$", "", lhs_label), ",")[[1]]
+  if (length(parts) == 0 || parts[1] == "") return(numeric(0))
+  subs <- unlist(lapply(0:(length(parts) - 1), function(k) {
+    if (k == 0) return("{}")
+    apply(combn(parts, k), 2, function(s) paste0("{", paste(s, collapse = ","), "}"))
+  }))
+  conf[subs[subs %in% names(conf)]]
+}
+
+tidy <- function(d) {
+  d %>%
+    transmute(rule = gsub(",", ", ", lhs), patients = round(coverage * length(trans)),
+              support = round(support, 3), confidence = round(confidence, 3), lift = round(lift, 3))
+}
+
+high <- q %>% filter(lift >= 1.5)
+high <- high[mapply(function(l, c) all(c > subset_confs(l)), high$lhs, high$confidence), ]
+high <- tidy(arrange(high, desc(lift)))
+
+low <- q %>% filter(lift <= 0.67)
+low <- low[mapply(function(l, c) all(c < subset_confs(l)), low$lhs, low$confidence), ]
+low <- tidy(arrange(low, lift))
+
+cat("Higher-risk rules (lift >= 1.5):", nrow(high), "non-redundant, from", sum(q$lift >= 1.5), "\n")
+cat("Lower-risk rules (lift <= 0.67):", nrow(low), "non-redundant, from", sum(q$lift <= 0.67), "\n")
+```
+
+## 2.1 Higher-risk combinations
+
+```{r high}
+head(high, 15)
+```
+
+## 2.2 Lower-risk combinations
+
+```{r low}
+head(low, 10)
+```
+
+```{r scatter}
+ggplot(q, aes(support, confidence, colour = lift)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_hline(yintercept = base_rate, linetype = "dashed") +
+  scale_x_log10(labels = scales::percent) +
+  scale_colour_gradient2(low = "steelblue", mid = "grey85", high = "firebrick", midpoint = 1) +
+  labs(title = "Association Rules with Consequent {readmit_30 = yes}",
+       x = "Support: share of all patients (log scale)",
+       y = "Confidence (readmission rate in the group)", colour = "Lift")
+```
+
+```{r top-rules, fig.height = 6}
+show <- rbind(head(high, 8) %>% mutate(kind = "Higher risk"),
+              head(low, 5) %>% mutate(kind = "Lower risk"))
+ggplot(show, aes(x = reorder(rule, confidence), y = confidence, fill = kind)) +
+  geom_col() +
+  geom_hline(yintercept = base_rate, linetype = "dashed") +
+  coord_flip() +
+  scale_fill_manual(values = c("Higher risk" = "firebrick", "Lower risk" = "steelblue")) +
+  labs(title = "Strongest Non-Redundant Rules", x = "Rule antecedent",
+       y = "Confidence: 30-day readmission rate in the group", fill = NULL)
+```
+
+```{r save}
+write.csv(high, "../report/figures/q2_high_risk_rules_r.csv", row.names = FALSE)
+write.csv(low, "../report/figures/q2_low_risk_rules_r.csv", row.names = FALSE)
+```
+
+# 3. Discussion
+
+The R rules match the Python version, since both run Apriori on the same baskets with the same
+thresholds. There are `r nrow(high)` non-redundant higher-risk rules and `r nrow(low)` lower-risk ones.
+
+- **Repeated hospital use** gives the strongest rules: patients with two or more inpatient stays in the
+  previous year are readmitted within 30 days at
+  `r sprintf("%.1f%%", 100 * conf["{prior_inpatient=2+}"])`, `r round(conf["{prior_inpatient=2+}"] / base_rate, 2)`
+  times the average.
+- **Discharge to a care facility**, especially for patients aged 60–79, emergency admissions and
+  circulatory diagnoses, gives readmission rates of about 17–19% (lift about 2).
+- **Younger patients with no prior stay** who are discharged home with few diagnoses or medications have
+  the lowest rates, about 5% (lift about 0.56–0.59).
+
+These groups echo the two strongest predictors from Question 1 (prior inpatient visits and discharge
+destination) and show where the risk concentrates. The rules depend on the chosen bins and minimum
+support, and they describe co-occurrence, not cause.

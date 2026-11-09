@@ -1,0 +1,4 @@
+"model","cv_auc","test_auc","recall","precision","share_flagged"
+"Logistic regression","0.638 +/- 0.011",0.642,0.547,0.137,0.359
+"Decision tree","0.627 +/- 0.006",0.62,0.574,0.131,0.393
+"Random forest","0.649 +/- 0.007",0.647,0.467,0.152,0.276

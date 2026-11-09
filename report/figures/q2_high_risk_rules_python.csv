@@ -1,0 +1,78 @@
+rule,patients,support,confidence,lift
+"{A1C=not tested, prior_inpatient=2+}",2077,0.007,0.221,2.456
+{prior_inpatient=2+},2397,0.007,0.215,2.392
+"{diabetes_med=yes, diagnoses=<7, discharge=Care facility}",1942,0.005,0.191,2.122
+"{diabetes_med=yes, diag1=Circulatory, discharge=Care facility}",2249,0.006,0.185,2.06
+"{admission=Emergency, age=60-79, discharge=Care facility}",2842,0.007,0.182,2.03
+"{age=60-79, discharge=Care facility, source=Emergency room}",2883,0.008,0.182,2.028
+"{age=60-79, discharge=Care facility, medications=11-20}",2662,0.007,0.18,2.008
+"{age=60-79, diabetes_med=yes, discharge=Care facility}",4394,0.011,0.179,1.992
+"{diag1=Circulatory, discharge=Care facility, prior_emergency=0}",2642,0.007,0.179,1.989
+"{diagnoses=<7, discharge=Care facility, prior_emergency=0}",2413,0.006,0.178,1.984
+"{diagnoses=<7, discharge=Care facility}",2537,0.006,0.178,1.98
+"{age=60-79, discharge=Care facility, gender=Male}",2293,0.006,0.177,1.977
+"{age=60-79, discharge=Care facility, insulin=no}",2449,0.006,0.175,1.951
+"{diag1=Circulatory, discharge=Care facility}",2876,0.007,0.174,1.94
+"{age=60-79, discharge=Care facility, stay=4-7 days}",2600,0.006,0.174,1.936
+"{age=60-79, discharge=Care facility, med_change=no}",2741,0.007,0.174,1.934
+"{age=60-79, discharge=Care facility, prior_emergency=0}",5170,0.013,0.173,1.928
+"{age=60-79, discharge=Care facility}",5570,0.014,0.172,1.917
+"{diabetes_med=yes, discharge=Care facility, insulin=no}",2598,0.006,0.167,1.864
+"{A1C=not tested, discharge=Care facility, source=Referral}",2725,0.007,0.167,1.863
+"{discharge=Care facility, source=Emergency room, stay=4-7 days}",3223,0.008,0.167,1.855
+"{diagnoses=7-8, discharge=Care facility, prior_emergency=0}",2246,0.005,0.167,1.854
+"{diabetes_med=yes, discharge=Care facility, source=Referral}",2508,0.006,0.166,1.851
+"{discharge=Care facility, med_change=yes, medications=21+}",2359,0.006,0.166,1.85
+"{diagnoses=7-8, discharge=Care facility}",2433,0.006,0.166,1.849
+"{diabetes_med=yes, discharge=Care facility, stay=4-7 days}",4382,0.01,0.164,1.822
+"{diabetes_med=yes, discharge=Care facility, source=Emergency room}",5150,0.012,0.163,1.81
+"{admission=Emergency, discharge=Care facility, stay=4-7 days}",3152,0.007,0.161,1.798
+"{discharge=Care facility, prior_emergency=0, source=Referral}",2990,0.007,0.161,1.795
+"{admission=Emergency, diabetes_med=yes, discharge=Care facility}",4958,0.011,0.161,1.792
+"{discharge=Care facility, med_change=yes, stay=4-7 days}",2731,0.006,0.161,1.79
+"{A1C=not tested, discharge=Care facility, medications=21+}",3130,0.007,0.161,1.79
+"{admission=Emergency, discharge=Care facility, med_change=yes}",2975,0.007,0.161,1.789
+"{A1C=not tested, discharge=Care facility, med_change=yes}",4664,0.011,0.161,1.788
+"{diabetes_med=yes, discharge=Care facility, gender=Male}",3507,0.008,0.161,1.788
+"{discharge=Care facility, insulin=yes, stay=4-7 days}",3128,0.007,0.16,1.787
+"{discharge=Care facility, source=Referral}",3161,0.007,0.16,1.786
+"{discharge=Care facility, med_change=yes, source=Emergency room}",3195,0.007,0.16,1.784
+"{admission=Emergency, discharge=Care facility, source=Emergency room}",5493,0.013,0.16,1.784
+"{discharge=Care facility, medications=11-20, source=Emergency room}",3492,0.008,0.16,1.783
+"{diabetes_med=yes, discharge=Care facility, medications=21+}",3247,0.007,0.16,1.78
+"{diabetes_med=yes, discharge=Care facility, med_change=no}",3465,0.008,0.159,1.774
+"{A1C=not tested, diabetes_med=yes, discharge=Care facility}",7660,0.017,0.159,1.774
+"{discharge=Care facility, med_change=yes, prior_emergency=0}",5245,0.012,0.159,1.773
+"{diabetes_med=yes, discharge=Care facility, prior_emergency=0}",8452,0.019,0.159,1.771
+"{discharge=Care facility, medications=21+, prior_emergency=0}",3466,0.008,0.159,1.77
+"{discharge=Care facility, gender=Male, prior_emergency=0}",4122,0.009,0.159,1.769
+"{diabetes_med=yes, discharge=Care facility}",9211,0.021,0.159,1.765
+"{discharge=Care facility, insulin=yes, source=Emergency room}",3809,0.009,0.158,1.763
+"{discharge=Care facility, gender=Female, source=Emergency room}",4237,0.01,0.158,1.761
+"{discharge=Care facility, prior_emergency=0, stay=4-7 days}",5219,0.012,0.158,1.76
+"{discharge=Care facility, gender=Female, insulin=yes}",4119,0.009,0.158,1.76
+"{discharge=Care facility, med_change=yes}",5746,0.013,0.158,1.76
+"{admission=Emergency, discharge=Care facility, insulin=yes}",3635,0.008,0.158,1.755
+"{discharge=Care facility, insulin=yes, medications=21+}",2494,0.006,0.158,1.755
+"{A1C=not tested, discharge=Care facility, stay=4-7 days}",4780,0.011,0.158,1.754
+"{discharge=Care facility, source=Emergency room}",6691,0.015,0.157,1.752
+"{discharge=Care facility, medications=21+}",3775,0.008,0.157,1.752
+"{A1C=not tested, discharge=Care facility, insulin=yes}",5410,0.012,0.157,1.752
+"{discharge=Care facility, stay=4-7 days}",5674,0.013,0.157,1.745
+"{discharge=Care facility, gender=Male}",4474,0.01,0.156,1.74
+"{discharge=Care facility, insulin=yes, prior_emergency=0}",6039,0.013,0.156,1.737
+"{discharge=Care facility, insulin=yes, medications=11-20}",3329,0.007,0.155,1.729
+"{admission=Emergency, discharge=Care facility, medications=11-20}",3443,0.008,0.155,1.727
+"{discharge=Care facility, insulin=yes}",6613,0.015,0.155,1.726
+"{admission=Emergency, discharge=Care facility, prior_emergency=0}",6041,0.013,0.154,1.711
+"{admission=Emergency, discharge=Care facility}",6547,0.014,0.152,1.696
+"{discharge=Care facility, gender=Female, medications=11-20}",3776,0.008,0.152,1.693
+"{discharge=Care facility, medications=11-20}",6004,0.013,0.152,1.691
+"{discharge=Care facility, prior_emergency=0}",11018,0.024,0.152,1.689
+{discharge=Care facility},11940,0.026,0.151,1.683
+"{A1C=not tested, insulin=yes, prior_inpatient=1}",2637,0.005,0.142,1.584
+"{insulin=yes, prior_inpatient=1}",3106,0.006,0.14,1.556
+"{A1C=not tested, prior_inpatient=1, source=Emergency room}",2604,0.005,0.138,1.539
+"{prior_inpatient=1, source=Emergency room}",3082,0.006,0.137,1.521
+"{A1C=not tested, age=60-79, prior_inpatient=1}",2611,0.005,0.135,1.505
+"{admission=Emergency, prior_inpatient=1}",2803,0.005,0.135,1.502

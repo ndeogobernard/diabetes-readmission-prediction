@@ -1,0 +1,251 @@
+---
+title: "Part 2: Question 1, Predicting 30-Day Readmission"
+subtitle: "Personal project: Predicting 30-Day Hospital Readmission for Patients with Diabetes"
+author: "Bernard Issifu"
+output:
+  html_document:
+    toc: true
+    df_print: kable
+---
+
+**Question 1.** Which patient and hospital-stay factors best predict readmission within 30 days?
+
+This document trains and compares three classifiers on the cleaned data from Part 1 (render
+`01_data_preparation_eda.Rmd` first). The Python version is `python/02_q1_classification.ipynb`.
+
+```{r setup, message = FALSE}
+# ---- Setup ----
+library(dplyr)
+library(ggplot2)
+library(rpart)
+library(randomForest)
+library(pROC)
+
+theme_set(theme_minimal())
+knitr::opts_chunk$set(fig.width = 8, fig.height = 5)
+
+# na.strings = "" keeps the 'None' test category as text
+df <- read.csv("../data/processed/diabetes_clean_r.csv", stringsAsFactors = FALSE, na.strings = "")
+dim(df)
+cat(sprintf("30-day readmission rate: %.2f%%\n", mean(df$readmit_30) * 100))
+```
+
+# 1. Approach
+
+The approach mirrors the Python version:
+
+- **Features:** 25 predictors. The 7 numeric features are standardized; the 3 skewed visit counts
+  (outpatient, emergency, inpatient) are log-transformed (`log(x + 1)`) and then standardized; the 15
+  categorical features become factors, whose first level (alphabetically) is the reference in the
+  logistic regression.
+- **Imbalance:** only 8.98% of patients are readmitted. The logistic regression and decision tree weight
+  each readmitted patient by the inverse class frequency; the random forest draws a balanced sample
+  (equal numbers of readmitted and non-readmitted patients) for each tree. Accuracy is not used.
+- **Metrics:** ROC-AUC (ranking quality), recall (share of readmissions flagged) and precision (share of
+  flagged patients actually readmitted), at a 0.5 threshold.
+- **Models:** logistic regression; a decision tree limited to depth 6 with at least 100 patients per
+  leaf; and a random forest of 300 trees with at least 20 patients per leaf.
+- **Validation:** an 80/20 split stratified on the outcome, plus 5-fold cross-validation on the training
+  set.
+
+```{r features}
+num_cols  <- c("age_years", "time_in_hospital", "num_lab_procedures", "num_procedures",
+               "num_medications", "number_diagnoses", "n_med_changes")
+skew_cols <- c("number_outpatient", "number_emergency", "number_inpatient")
+cat_cols  <- c("race", "gender", "admission_type", "discharge_to", "admission_source",
+               "medical_specialty", "diag1_group", "diag2_group", "diag3_group", "A1Cresult",
+               "max_glu_serum", "insulin", "metformin", "change", "diabetesMed")
+
+data <- df[, c(num_cols, skew_cols, cat_cols)]
+data[skew_cols] <- lapply(data[skew_cols], log1p)
+data[cat_cols] <- lapply(data[cat_cols], factor)
+data$readmit <- factor(df$readmit_30, levels = c(0, 1), labels = c("no", "yes"))
+
+# Stratified 80/20 split: sample 80% within each outcome class
+set.seed(42)
+idx_train <- unlist(lapply(split(seq_len(nrow(data)), data$readmit),
+                           function(i) sample(i, round(0.8 * length(i)))))
+train <- data[idx_train, ]
+test  <- data[-idx_train, ]
+
+# Standardize numeric features with the training means and standard deviations
+scale_cols <- c(num_cols, skew_cols)
+mu <- sapply(train[scale_cols], mean)
+sdv <- sapply(train[scale_cols], sd)
+train[scale_cols] <- sweep(sweep(train[scale_cols], 2, mu), 2, sdv, "/")
+test[scale_cols]  <- sweep(sweep(test[scale_cols], 2, mu), 2, sdv, "/")
+
+cat(sprintf("Training: %s patients (%.2f%% readmitted)\n", format(nrow(train), big.mark = ","),
+            mean(train$readmit == "yes") * 100))
+cat(sprintf("Test:     %s patients (%.2f%% readmitted)\n", format(nrow(test), big.mark = ","),
+            mean(test$readmit == "yes") * 100))
+```
+
+# 2. Training and evaluation
+
+```{r models}
+# Class weights: each class contributes equally to the fit
+class_weights <- function(y) ifelse(y == "yes", length(y) / (2 * sum(y == "yes")),
+                                    length(y) / (2 * sum(y == "no")))
+
+fit_predict <- function(model, tr, te) {
+  w <- class_weights(tr$readmit)
+  if (model == "Logistic regression") {
+    # quasibinomial gives the same coefficients as binomial without warnings for non-integer weights
+    fit <- glm(readmit ~ ., data = tr, family = quasibinomial, weights = w)
+    p <- predict(fit, te, type = "response")
+  } else if (model == "Decision tree") {
+    fit <- rpart(readmit ~ ., data = tr, weights = w, method = "class",
+                 control = rpart.control(maxdepth = 6, minbucket = 100, cp = 0))
+    p <- predict(fit, te, type = "prob")[, "yes"]
+  } else {
+    n_yes <- sum(tr$readmit == "yes")
+    fit <- randomForest(readmit ~ ., data = tr, ntree = 300, nodesize = 20,
+                        strata = tr$readmit, sampsize = c(n_yes, n_yes))
+    p <- predict(fit, te, type = "prob")[, "yes"]
+  }
+  list(fit = fit, p = p)
+}
+
+model_names <- c("Logistic regression", "Decision tree", "Random forest")
+
+# 5-fold cross-validated ROC-AUC on the training set (stratified folds)
+set.seed(42)
+folds <- integer(nrow(train))
+for (cl in c("no", "yes")) {
+  i <- which(train$readmit == cl)
+  folds[i] <- sample(rep(1:5, length.out = length(i)))
+}
+cv_auc <- sapply(model_names, function(m) {
+  sapply(1:5, function(k) {
+    r <- fit_predict(m, train[folds != k, ], train[folds == k, ])
+    as.numeric(auc(train$readmit[folds == k], r$p, levels = c("no", "yes"), direction = "<",
+                   quiet = TRUE))
+  })
+})
+
+# Fit on the full training set and evaluate on the test set
+set.seed(42)
+fits <- lapply(setNames(model_names, model_names), function(m) fit_predict(m, train, test))
+
+results <- do.call(rbind, lapply(model_names, function(m) {
+  p <- fits[[m]]$p
+  pred <- ifelse(p >= 0.5, "yes", "no")
+  tp <- sum(pred == "yes" & test$readmit == "yes")
+  data.frame(model = m,
+             cv_auc = sprintf("%.3f +/- %.3f", mean(cv_auc[, m]), sd(cv_auc[, m])),
+             test_auc = round(as.numeric(auc(test$readmit, p, levels = c("no", "yes"),
+                                             direction = "<", quiet = TRUE)), 3),
+             recall = round(tp / sum(test$readmit == "yes"), 3),
+             precision = round(tp / sum(pred == "yes"), 3),
+             share_flagged = round(mean(pred == "yes"), 3))
+}))
+results
+```
+
+```{r roc, fig.width = 6.5, fig.height = 5.5}
+roc_df <- do.call(rbind, lapply(model_names, function(m) {
+  r <- roc(test$readmit, fits[[m]]$p, levels = c("no", "yes"), direction = "<", quiet = TRUE)
+  data.frame(model = sprintf("%s (AUC = %.3f)", m, as.numeric(r$auc)),
+             fpr = 1 - r$specificities, tpr = r$sensitivities)
+}))
+ggplot(roc_df, aes(fpr, tpr, colour = model)) +
+  geom_line() +
+  geom_abline(linetype = "dashed") +
+  labs(title = "ROC Curves on the Test Set", x = "False positive rate (1 − specificity)",
+       y = "True positive rate (recall)", colour = NULL) +
+  theme(legend.position = "bottom", legend.direction = "vertical")
+```
+
+```{r confusion}
+for (m in model_names) {
+  cat("\n", m, "\n")
+  print(table(Actual = test$readmit, Predicted = ifelse(fits[[m]]$p >= 0.5, "yes", "no")))
+}
+```
+
+**Interpretation.** All three models rank patients better than chance, with test ROC-AUC between
+`r min(results$test_auc)` and `r max(results$test_auc)`; the cross-validated AUCs are similar, so the
+comparison is stable. As in Python, the random forest and logistic regression rank best, and no model
+reaches high precision: the best precision is `r max(results$precision)` against a 9% base rate.
+
+# 3. Which factors matter?
+
+## 3.1 Logistic regression: odds ratios
+
+```{r odds}
+coefs <- coef(fits[["Logistic regression"]]$fit)[-1]
+odds <- data.frame(term = names(coefs), coefficient = coefs, odds_ratio = exp(coefs))
+top <- odds[order(-abs(odds$coefficient)), ][1:12, ]
+
+ggplot(top, aes(x = reorder(term, odds_ratio), y = odds_ratio, fill = odds_ratio > 1)) +
+  geom_col() +
+  geom_hline(yintercept = 1) +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "firebrick", "FALSE" = "steelblue"), guide = "none") +
+  labs(title = "Logistic Regression: 12 Largest Effects (Odds Ratios)", x = "Term",
+       y = "Odds ratio (>1 raises, <1 lowers readmission odds)")
+
+data.frame(top[, -1], row.names = top$term) %>% round(3)
+```
+
+## 3.2 Random forest: permutation importance
+
+```{r permutation}
+# Drop in test ROC-AUC when one feature's values are shuffled (5 repeats)
+rf <- fits[["Random forest"]]$fit
+base_auc <- as.numeric(auc(test$readmit, fits[["Random forest"]]$p, levels = c("no", "yes"),
+                           direction = "<", quiet = TRUE))
+set.seed(42)
+features <- c(num_cols, skew_cols, cat_cols)
+drops <- sapply(features, function(f) {
+  mean(replicate(5, {
+    shuffled <- test
+    shuffled[[f]] <- sample(shuffled[[f]])
+    p <- predict(rf, shuffled, type = "prob")[, "yes"]
+    base_auc - as.numeric(auc(test$readmit, p, levels = c("no", "yes"), direction = "<",
+                              quiet = TRUE))
+  }))
+})
+imp <- data.frame(feature = features, mean_auc_drop = round(drops, 4)) %>%
+  arrange(desc(mean_auc_drop))
+
+ggplot(head(imp, 12), aes(x = reorder(feature, mean_auc_drop), y = mean_auc_drop)) +
+  geom_col(fill = "seagreen") +
+  coord_flip() +
+  labs(title = "Random Forest: Permutation Importance (Top 12)", x = "Feature",
+       y = "Drop in test ROC-AUC when the feature is shuffled")
+
+head(imp, 12)
+```
+
+## 3.3 Decision tree: the top splits
+
+```{r tree}
+# Splits are on standardized (and log-transformed) values
+tree <- fits[["Decision tree"]]$fit
+print(head(tree$frame[tree$frame$var != "<leaf>", c("var", "n")], 7))
+```
+
+```{r save}
+write.csv(results, "../report/figures/q1_results_r.csv", row.names = FALSE)
+write.csv(imp, "../report/figures/q1_permutation_importance_r.csv", row.names = FALSE)
+```
+
+# 4. Discussion
+
+The R models reach the same conclusions as the Python version. **Discharge destination** is the most
+important feature (shuffling it lowers the random forest's AUC by
+`r imp$mean_auc_drop[imp$feature == "discharge_to"]`), followed by **prior inpatient visits**
+(`r imp$mean_auc_drop[imp$feature == "number_inpatient"]`). In the logistic regression, being
+discharged home has an odds ratio of
+`r round(odds$odds_ratio[odds$term == "discharge_toHome"], 2)` against discharge to a care facility,
+and each standard deviation of log inpatient visits has an odds ratio of
+`r round(odds$odds_ratio[odds$term == "number_inpatient"], 2)`. The smaller effects of age, length of
+stay, number of diagnoses and specialty also match.
+
+The exact numbers differ slightly from Python because the train/test split is drawn by a different
+random number generator, and the R random forest handles imbalance by balanced sampling rather than
+class weights. The overall picture is the same: the models rank patients only moderately well
+(ROC-AUC about 0.64–0.65), because much of what drives readmission happens after discharge and is not
+in the data.
