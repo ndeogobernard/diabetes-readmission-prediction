@@ -1,5 +1,7 @@
 # Predicting 30-Day Hospital Readmission for Patients with Diabetes
 
+![Project overview](assets/social-preview.png)
+
 A data science project on predicting which patients with diabetes will be readmitted to hospital within
 30 days of discharge, using 101,766 hospital encounters from 130 US hospitals. It combines
 classification models with association rule mining to identify the patients and patient profiles at
